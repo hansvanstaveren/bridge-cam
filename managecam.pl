@@ -7,11 +7,14 @@ use XML::Simple;
 use Data::Dumper;
 use LWP::Simple;
 
+my $coldconf;
 #
 # user/password stuff
 #
 my $resetpw;
 my $ourpw = "wbf123";
+my $ftpuser = "ftpuser";
+my $ftppass = "ftp123";
 #
 # Network stuff
 #
@@ -23,13 +26,11 @@ my $gateway = "254";
 
 my $camport = 88;
 
-my $wifinet = "bridge-cam";
-my $wifipw = "bridge-cam";
-
-my $maxcam = 5;
+my $wifinet = "bridge-care";
+my $wifipw = "brc-0000";
 
 my $maxchildren = 10;
-my $quietflag = "";
+my $quietflag = "-nv";
 
 sub prompt {
     my ($pr) = @_;
@@ -111,12 +112,31 @@ sub set_ip {
     return sendcmd($cam, "setIpInfo", \%args);
 }
 
+sub devname {
+    my ($cam) = @_;
+
+    return "BRC-$cam";
+}
+
 sub set_devname {
     my ($cam) = @_;
     my %args;
 
-    $args{devName} = "bridge_cam_$cam";
+    $args{devName} = devname($cam);
     return sendcmd($cam, "setDevName", \%args);
+}
+
+sub set_system_time {
+    my ($cam) = @_;
+    my %args;
+
+    $args{timeSource} = 0;
+    $args{ntpServer} = "172.16.12.254";
+    $args{dateFormat} = 0;
+    $args{timeFormat} = 1;
+    $args{timeZone} = -3600;
+    $args{isDst} = 1;
+    return sendcmd($cam, "setSystemTime", \%args);
 }
 
 sub set_wifi {
@@ -150,11 +170,27 @@ sub set_alarm_record {
     return sendcmd($cam, "setAlarmRecordConfig", \%args);
 }
 
+sub set_infrared_manual {
+    my ($cam) = @_;
+    my %args;
+
+    $args{mode} = 1;
+    return sendcmd($cam, "setInfraLedConfig", \%args);
+}
+
+sub set_infrared_off {
+    my ($cam) = @_;
+    my %args;
+
+    return sendcmd($cam, "closeInfraLed", \%args);
+}
+
+
 sub set_schedule_record {
     my ($cam, $onoff, $wraparound, $audio) = @_;
     my %args;
     my $lowhalf = 20;	# 10AM
-    my $highhalf = 38;	# 7PM
+    my $highhalf = 40;	# 8PM
 
     $args{isEnable} = $onoff;
     $args{spaceFullMode} = $wraparound ? 0 : 1;
@@ -173,6 +209,16 @@ sub set_schedule_record {
     return sendcmd($cam, "setScheduleRecordConfig", \%args);
 }
 
+sub set_ftp_account {
+    my ($cam, $userid, $pass, $privilege) = @_;
+    my %args;
+
+    $args{usrName} = $userid;
+    $args{usrPwd} = $pass;
+    $args{privilege} = $privilege;
+    return sendcmd($cam, "addAccount", \%args);
+}
+
 sub start_ftp {
     my ($cam) = @_;
     my %args;
@@ -182,10 +228,15 @@ sub start_ftp {
 
 sub copy_files {
     my ($cam) = @_;
+    my $name = devname($cam);
 
     my $camip = $camnet . ($cam+$cambase);
     my $pw = $ourpw;
-    system("wget $quietflag --mirror -nH -r 'ftp://admin:$pw\@$camip:50021/'");
+    -d $name || mkdir $name;
+    chdir $name;
+    system("(date;echo starting copy)>>Copytimes");
+    system("wget $quietflag -a Logfile -A schedule\\*.avi --mirror -nH -r 'ftp://$ftpuser:$ftppass\@$camip:50021/'");
+    system("(date;echo ending copy)>>Copytimes");
 }
 
 sub copy_files_allcam {
@@ -233,28 +284,41 @@ do {
     if ($command =~ /^[Ii].*/) {
 	# Init
 	my $cam = prompt("Camera number");
-	$dhcpcamip = prompt("Current IP address");
-	$resetpw = "";
-	# $resetpw = $ourpw;
-	change_passwd($cam, $resetpw, $ourpw);
-	$resetpw = $ourpw;
+	$dhcpcamip = prompt("Current IP address if different");
+	$coldconf = $dhcpcamip ne "";
+	if ($coldconf) {
+	    $resetpw = "";
+	    change_passwd($cam, $resetpw, $ourpw);
+	    $resetpw = $ourpw;
+	} else {
+	    $resetpw = $ourpw;
+	}
 
 	set_devname($cam);
+	set_system_time($cam);
 	set_wifi($cam);
 
 	set_motion_detect($cam, 0);
 	set_alarm_record($cam, 0);
 	set_schedule_record($cam, 1, 1, 1);
+	set_infrared_manual($cam);
+	set_infrared_off($cam);
 
-	# And finally (reboot will occur)
-	set_ip($cam);
+	set_ftp_account($cam, $ftpuser, $ftppass, 2);
+
+	if ($coldconf) {
+	    # And finally (reboot will occur)
+	    set_ip($cam);
+	}
 
 	$dhcpcamip = "";
     } elsif ($command =~ /^[Bb].*/) {
 	# Backup
 	my $range=prompt("low-high cam numbers");
-	$range =~ /^([0-9]*)-([0-9]*)$/;
-	copy_files_allcam($1, $2);
+	$range =~ /^([0-9]*)(-([0-9]*))?$/;
+	my $low = $1;
+	my $high = defined($3) ? $3 : $1;
+	copy_files_allcam($low, $high);
     } else {
 	die "command";
     }
