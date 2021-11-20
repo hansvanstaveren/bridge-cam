@@ -1,5 +1,13 @@
 #!/usr/bin/perl
 
+#
+# Software for Bridge_CARE camera setup and backup
+#
+
+#
+# Author: Hans van Staveren <sater@xs4all.nl>
+#
+
 use strict;
 use warnings;
 
