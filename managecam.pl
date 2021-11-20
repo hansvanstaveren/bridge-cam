@@ -185,7 +185,6 @@ sub set_infrared_off {
     return sendcmd($cam, "closeInfraLed", \%args);
 }
 
-
 sub set_schedule_record {
     my ($cam, $onoff, $wraparound, $audio) = @_;
     my %args;
