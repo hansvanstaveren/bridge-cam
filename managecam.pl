@@ -28,6 +28,8 @@ my $ftppass = "ftp123";
 #
 my $dhcpcamip="";
 my $cambase = 0;	# Number to add to camera to get 4th octet IP address
+my $cammin = 1;
+my $cammax = 150;
 my $camnet = "172.16.12.";
 my $camnetmask = "255.255.255.0";
 my $gateway = "254";
@@ -286,11 +288,15 @@ sub copy_files_allcam {
     } while (wait() > 0);
 }
 
-do {
+while(1) {
     my $command = prompt("Init or Backup");
     if ($command =~ /^[Ii].*/) {
 	# Init
 	my $cam = prompt("Camera number");
+	if ($cam < $cammin || $cam > $cammax) {
+	    print "Should be between $cammin and $cammax inclusive\n";
+	    next;
+	}
 	$dhcpcamip = prompt("Current IP address if different");
 	$coldconf = $dhcpcamip ne "";
 	if ($coldconf) {
@@ -329,4 +335,4 @@ do {
     } else {
 	die "command";
     }
-} while (1);
+}
