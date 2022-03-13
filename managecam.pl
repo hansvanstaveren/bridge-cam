@@ -30,14 +30,27 @@ my $dhcpcamip="";
 my $cambase = 0;	# Number to add to camera to get 4th octet IP address
 my $cammin = 1;
 my $cammax = 150;
+
 my $camnet = "172.16.12.";
 my $camnetmask = "255.255.255.0";
-my $gateway = "254";
+my $gateway = "254";		# 254 and not 1, to be able to use camera #1
+
+my $ip_gateway = $camnet . $gateway;
+
+my $hours_after_gmt = 1;
+my $hours_dst = 1;
 
 my $camport = 88;
 
 my $wifinet = "bridge-care";
 my $wifipw = "brc-0000";
+
+#
+# Recording times
+#
+
+my $lowhalf = 20;	# 10h00
+my $highhalf = 40;	# 20h00
 
 my $maxchildren = 10;
 my $quietflag = "-nv";
@@ -48,7 +61,7 @@ sub prompt {
     print ("$pr: ");
     my $ans = <>;
     chomp $ans;
-    print "Prompt $pr returning $ans\n";
+    # print "Prompt $pr returning $ans\n";
     return $ans;
 }
 
@@ -64,10 +77,10 @@ sub curl {
 	$camip = $camnet . ($cam+$cambase);
 	$pw = $ourpw;
     }
-    my $pref = "http://$camip:$camport/cgi-bin/CGIProxy.fcgi?";
+    my $prefix = "http://$camip:$camport/cgi-bin/CGIProxy.fcgi?";
     my $auth = "usr=admin&pwd=$pw";
 
-    my $curlcmd = "curl -s --connect-timeout 5 '$pref$auth&$str'";
+    my $curlcmd = "curl -s --connect-timeout 5 '$prefix$auth&$str'";
     print "curlcmd = $curlcmd\n";
     my $res = `$curlcmd`;
     print "res = $res\n";
@@ -80,7 +93,7 @@ sub curl {
     if ($result != 0) {
 	print "Error $result\n";
     } else {
-	print Dumper($parsed), "\n";
+	    # print Dumper($parsed), "\n";
     }
     return $result == 0;
 }
@@ -89,13 +102,13 @@ sub sendcmd {
     my ($cam, $cmd, $argptr) = @_;
     my %args = %$argptr;
 
-    print Dumper(\%args), "\n";
+    # print Dumper(\%args), "\n";
     my $argstr = "";
     foreach my $key (keys%args) {
 	$argstr .= "$key=$args{$key}&";
     }
     $argstr .= "cmd=$cmd";
-    print "args = $argstr\n";
+    # print "args = $argstr\n";
     return curl($cam, $argstr);
 }
 
@@ -116,9 +129,9 @@ sub set_ip {
     $args{DHCP} = 0;
     $args{ip} = $camnet . ( $cam+$cambase );
     $args{mask} = $camnetmask;
-    $args{gate} = $camnet . $gateway;
-    $args{dns1} = $camnet . $gateway;
-    $args{dns2} = $camnet . $gateway;
+    $args{gate} = $ip_gateway;
+    $args{dns1} = $ip_gateway;
+    $args{dns2} = $ip_gateway;
     return sendcmd($cam, "setIpInfo", \%args);
 }
 
@@ -141,11 +154,11 @@ sub set_system_time {
     my %args;
 
     $args{timeSource} = 0;
-    $args{ntpServer} = "172.16.12.254";
+    $args{ntpServer} = $ip_gateway;
     $args{dateFormat} = 0;
     $args{timeFormat} = 1;
-    $args{timeZone} = -3600;
-    $args{isDst} = 1;
+    $args{timeZone} = -3600*$hours_after_gmt;
+    $args{isDst} = $hours_dst;
     return sendcmd($cam, "setSystemTime", \%args);
 }
 
@@ -198,8 +211,6 @@ sub set_infrared_off {
 sub set_schedule_record {
     my ($cam, $onoff, $wraparound, $audio) = @_;
     my %args;
-    my $lowhalf = 20;	# 10AM
-    my $highhalf = 40;	# 8PM
 
     $args{isEnable} = $onoff;
     $args{spaceFullMode} = $wraparound ? 0 : 1;
@@ -208,6 +219,7 @@ sub set_schedule_record {
     foreach my $i ($lowhalf..$highhalf-1) {
 	$sum += 2**$i;
     }
+    # All days of the week
     $args{schedule0} = $sum;
     $args{schedule1} = $sum;
     $args{schedule2} = $sum;
@@ -244,6 +256,7 @@ sub copy_files {
     -d $name || mkdir $name;
     chdir $name;
     system("(date;echo starting copy)>>Copytimes");
+    print "wget $quietflag -a Logfile -A schedule\\*.avi --mirror -nH -r 'ftp://$ftpuser:$ftppass\@$camip:50021/'\n";
     system("wget $quietflag -a Logfile -A schedule\\*.avi --mirror -nH -r 'ftp://$ftpuser:$ftppass\@$camip:50021/'");
     system("(date;echo ending copy)>>Copytimes");
 }
@@ -264,6 +277,7 @@ sub copy_files_allcam {
 	if ($children == $maxchildren) {
 	    # Enough running in background
 	    # Wait for one to finish
+	    print "Wanting to copy $cam, but must wait\n";
 	    my $pid = wait();
 	    die "Wait failed" if ($pid < 0);
 	    $children--;
@@ -273,6 +287,7 @@ sub copy_files_allcam {
 	if ($pid != 0) {
 	    # Parent
 	    $children++;
+	    print "Started copy of camera $cam, now $children children\n";
 	} else {
 	    # Child
 	    copy_files($cam);
@@ -284,6 +299,7 @@ sub copy_files_allcam {
     # Wait for rest of children
     #
     do {
+	print "Waiting for $children children\n";
 	# Nothing
     } while (wait() > 0);
 }
@@ -300,12 +316,20 @@ while(1) {
 	$dhcpcamip = prompt("Current IP address if different");
 	$coldconf = $dhcpcamip ne "";
 	if ($coldconf) {
+	    if ($dhcpcamip =~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) {
+		print "Complete IP address $dhcpcamip\n";
+	    } elsif ($dhcpcamip =~ /^[0-9]+$/) {
+		$dhcpcamip = "$camnet$dhcpcamip";
+		print "Completed IP address $dhcpcamip\n";
+	    } else {
+		print "Wrong IP address $dhcpcamip\n";
+		next;
+	    }
+
 	    $resetpw = "";
 	    change_passwd($cam, $resetpw, $ourpw);
-	    $resetpw = $ourpw;
-	} else {
-	    $resetpw = $ourpw;
 	}
+	$resetpw = $ourpw;
 
 	set_devname($cam);
 	set_system_time($cam);
@@ -333,6 +357,7 @@ while(1) {
 	my $high = defined($3) ? $3 : $1;
 	copy_files_allcam($low, $high);
     } else {
-	die "command";
+	print "Goodbye!\n";
+	last;
     }
 }
