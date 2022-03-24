@@ -263,14 +263,14 @@ sub copy_files {
 }
 
 sub copy_files_allcam {
-    my ($low, $high, $simul, $basedir) = @_;
+    my ($simul, $basedir, @camnumbers) = @_;
     my $cam;
     my @camtocopy;
     my @camdown;
     my $children = 0;
 
-    print "Backup cameras $low to $high in directory $basedir\n";
-    for $cam ($low..$high) {
+    print "Backup cameras @camnumbers in directory $basedir\n";
+    for $cam (@camnumbers) {
 	if (start_ftp($cam, $basedir)) {
 	    # Camera is on, ftp started
 	    push @camtocopy, $cam;
@@ -281,7 +281,7 @@ sub copy_files_allcam {
     }
     print "Cameras down: @camdown\n";
 
-    @camtocopy = shuffle(@camtocopy);
+    # @camtocopy = shuffle(@camtocopy);
     print "Will copy cameras in order: @camtocopy\n";
 
     while ($cam = shift @camtocopy) {
@@ -315,8 +315,28 @@ sub copy_files_allcam {
     } while (wait() > 0);
 }
 
+sub splitgrp {
+    my @flds = @_;
+
+    my $result = "";
+    for (@flds) {
+	# print "next field $_\n";
+	if (/^([0-9]+)-([0-9]+)$/) {
+	    # print "range $1 to $2\n";
+	    for ($1..$2) {
+		$result = $result . " $_";
+	    }
+	} else {
+	    # print "single number $_\n";
+	    $result = $result . " $_";
+	}
+	# print "Result now: $result\n";
+    }
+    return $result;
+}
+
 while(1) {
-    my $command = prompt("Init or Backup");
+    my $command = prompt("Init or Backup or Groupbackup");
     if ($command =~ /^[Ii].*/) {
 	# Init
 	my $cam = prompt("Camera number");
@@ -372,7 +392,35 @@ while(1) {
 	    $basedir = $default_basedir;
 	}
 	$basedir .= "/";
-	copy_files_allcam($low, $high, $simul, $basedir);
+	copy_files_allcam($simul, $basedir, $low..$high);
+    } elsif ($command =~ /^[Gg].*/) {
+	# Group backup
+	my $children=0;
+
+	open (GROUP, '<', "groupinfo") || die "Group info missing";
+	while (<GROUP>) {
+	    chomp;
+	    my @flds = split;
+	    my $simul = shift @flds;
+	    print "Simul $simul, rest @flds\n";
+	    my $grprest = splitgrp(@flds);
+	    print "Backup $grprest\n";
+
+	    my $pid = fork();
+	    if ($pid == 0) {
+		print "Backup in child $grprest\n";
+		my @camnumbers = split(" ", $grprest);
+		print "As array: @camnumbers\n";
+		copy_files_allcam($simul, $default_basedir, @camnumbers);
+		exit();
+	    } else {
+		$children++;
+	    }
+	}
+	close GROUP;
+	for (1..$children) {
+	    my $pid = wait();
+	}
     } else {
 	print "Goodbye!\n";
 	last;
