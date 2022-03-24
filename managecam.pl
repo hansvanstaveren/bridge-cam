@@ -12,6 +12,7 @@ use warnings;
 use XML::Simple;
 use Data::Dumper;
 use LWP::Simple;
+use List::Util qw(shuffle);
 
 my $coldconf;
 #
@@ -263,14 +264,23 @@ sub copy_files_allcam {
     my ($low, $high) = @_;
     my $cam;
     my @camtocopy;
+    my @camdown;
     my $children = 0;
 
     for $cam ($low..$high) {
 	if (start_ftp($cam)) {
 	    # Camera is on, ftp started
 	    push @camtocopy, $cam;
+	} else {
+	    # Camera seems off
+	    push @camdown, $cam;
 	}
     }
+    print "Cameras down: @camdown\n";
+
+    @camtocopy = shuffle(@camtocopy);
+    print "Will copy cameras in order: @camtocopy\n";
+
     while ($cam = shift @camtocopy) {
 	if ($children == $maxchildren) {
 	    # Enough running in background
