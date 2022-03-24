@@ -3,8 +3,6 @@
 #
 # Software for Bridge_CARE camera setup and backup
 #
-
-#
 # Author: Hans van Staveren <sater@xs4all.nl>
 #
 
@@ -14,6 +12,7 @@ use warnings;
 use XML::Simple;
 use Data::Dumper;
 use LWP::Simple;
+use List::Util qw(shuffle);
 
 my $coldconf;
 #
@@ -21,8 +20,10 @@ my $coldconf;
 #
 my $resetpw;
 my $ourpw = "wbf123";
+
 my $ftpuser = "ftpuser";
 my $ftppass = "ftp123";
+my $default_basedir = "/mnt/d";
 #
 # Network stuff
 #
@@ -36,12 +37,25 @@ my $camnetmask = "255.255.255.0";
 my $gateway = "254";		# 254 and not 1, to be able to use camera #1
 
 my $ip_gateway = $camnet . $gateway;
+<<<<<<< HEAD
+=======
+
+my $hours_after_gmt = 1;
+my $hours_dst = 1;
+>>>>>>> 227a77cd0579164d90084b400ee14f621415f335
 
 my $camport = 88;
 
 my $wifinet = "bridge-care";
 my $wifipw = "brc-0000";
 
+<<<<<<< HEAD
+=======
+#
+# Recording times
+#
+
+>>>>>>> 227a77cd0579164d90084b400ee14f621415f335
 my $lowhalf = 20;	# 10h00
 my $highhalf = 40;	# 20h00
 
@@ -70,10 +84,10 @@ sub curl {
 	$camip = $camnet . ($cam+$cambase);
 	$pw = $ourpw;
     }
-    my $pref = "http://$camip:$camport/cgi-bin/CGIProxy.fcgi?";
+    my $prefix = "http://$camip:$camport/cgi-bin/CGIProxy.fcgi?";
     my $auth = "usr=admin&pwd=$pw";
 
-    my $curlcmd = "curl -s --connect-timeout 5 '$pref$auth&$str'";
+    my $curlcmd = "curl -s --connect-timeout 5 '$prefix$auth&$str'";
     print "curlcmd = $curlcmd\n";
     my $res = `$curlcmd`;
     print "res = $res\n";
@@ -86,7 +100,7 @@ sub curl {
     if ($result != 0) {
 	print "Error $result\n";
     } else {
-	print Dumper($parsed), "\n";
+	    # print Dumper($parsed), "\n";
     }
     return $result == 0;
 }
@@ -95,13 +109,13 @@ sub sendcmd {
     my ($cam, $cmd, $argptr) = @_;
     my %args = %$argptr;
 
-    print Dumper(\%args), "\n";
+    # print Dumper(\%args), "\n";
     my $argstr = "";
     foreach my $key (keys%args) {
 	$argstr .= "$key=$args{$key}&";
     }
     $argstr .= "cmd=$cmd";
-    print "args = $argstr\n";
+    # print "args = $argstr\n";
     return curl($cam, $argstr);
 }
 
@@ -150,8 +164,8 @@ sub set_system_time {
     $args{ntpServer} = $ip_gateway;
     $args{dateFormat} = 0;
     $args{timeFormat} = 1;
-    $args{timeZone} = -3600;
-    $args{isDst} = 1;
+    $args{timeZone} = -3600*$hours_after_gmt;
+    $args{isDst} = $hours_dst;
     return sendcmd($cam, "setSystemTime", \%args);
 }
 
@@ -241,13 +255,14 @@ sub start_ftp {
 }
 
 sub copy_files {
-    my ($cam) = @_;
-    my $name = devname($cam);
+    my ($cam, $basedir) = @_;
 
+    my $name = devname($cam);
+    my $dirname = "$basedir$name";
     my $camip = $camnet . ($cam+$cambase);
     my $pw = $ourpw;
-    -d $name || mkdir $name;
-    chdir $name;
+    unless (-d $dirname) { print "Creating directory $dirname\n"; mkdir $dirname }
+    chdir $dirname;
     system("(date;echo starting copy)>>Copytimes");
     print "wget $quietflag -a Logfile -A schedule\\*.avi --mirror -nH -r 'ftp://$ftpuser:$ftppass\@$camip:50021/'\n";
     system("wget $quietflag -a Logfile -A schedule\\*.avi --mirror -nH -r 'ftp://$ftpuser:$ftppass\@$camip:50021/'");
@@ -255,17 +270,27 @@ sub copy_files {
 }
 
 sub copy_files_allcam {
-    my ($low, $high) = @_;
+    my ($low, $high, $basedir) = @_;
     my $cam;
     my @camtocopy;
+    my @camdown;
     my $children = 0;
 
+    print "Backup cameras $low to $high in directory $basedir\n";
     for $cam ($low..$high) {
-	if (start_ftp($cam)) {
+	if (start_ftp($cam, $basedir)) {
 	    # Camera is on, ftp started
 	    push @camtocopy, $cam;
+	} else {
+	    # Camera seems off
+	    push @camdown, $cam;
 	}
     }
+    print "Cameras down: @camdown\n";
+
+    @camtocopy = shuffle(@camtocopy);
+    print "Will copy cameras in order: @camtocopy\n";
+
     while ($cam = shift @camtocopy) {
 	if ($children == $maxchildren) {
 	    # Enough running in background
@@ -283,7 +308,7 @@ sub copy_files_allcam {
 	    print "Started copy of camera $cam, now $children children\n";
 	} else {
 	    # Child
-	    copy_files($cam);
+	    copy_files($cam, $basedir);
 	    exit(0);
 	}
     }
@@ -348,7 +373,12 @@ while(1) {
 	$range =~ /^([0-9]*)(-([0-9]*))?$/;
 	my $low = $1;
 	my $high = defined($3) ? $3 : $1;
-	copy_files_allcam($low, $high);
+	my $basedir = prompt("Directory for storage [$default_basedir]");
+	if ($basedir eq "") {
+	    $basedir = $default_basedir;
+	}
+	$basedir .= "/";
+	copy_files_allcam($low, $high, $basedir);
     } else {
 	print "Goodbye!\n";
 	last;
