@@ -271,7 +271,7 @@ sub copy_files_allcam {
 
     print "Backup cameras @camnumbers in directory $basedir\n";
     for $cam (@camnumbers) {
-	if (start_ftp($cam, $basedir)) {
+	if (start_ftp($cam)) {
 	    # Camera is on, ftp started
 	    push @camtocopy, $cam;
 	} else {
@@ -407,17 +407,17 @@ while(1) {
 	    chomp;
 	    my @flds = split;
 	    my $simul = shift @flds;
-	    print "Simul $simul, rest @flds\n";
+	    # print "Simul $simul, rest @flds\n";
 	    my $grprest = splitgrp(@flds);
-	    print "Backup $grprest\n";
+	    # print "Backup $grprest\n";
 
 	    my $pid = fork();
 	    if ($pid == 0) {
-		print "Backup in child $grprest\n";
+		# print "Backup in child $grprest\n";
 		my @camnumbers = split(" ", $grprest);
-		print "As array: @camnumbers\n";
+		# print "As array: @camnumbers\n";
 		copy_files_allcam($simul, $basedir, @camnumbers);
-		exit();
+		exit(0);
 	    } else {
 		$children++;
 	    }
