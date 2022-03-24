@@ -252,10 +252,11 @@ sub copy_files {
     my ($cam, $basedir) = @_;
 
     my $name = devname($cam);
+    my $dirname = "$basedir$name";
     my $camip = $camnet . ($cam+$cambase);
     my $pw = $ourpw;
-    -d $name || mkdir $name;
-    chdir $name;
+    unless (-d $dirname) { print "Creating directory $dirname\n"; mkdir $dirname }
+    chdir $dirname;
     system("(date;echo starting copy)>>Copytimes");
     print "wget $quietflag -a Logfile -A schedule\\*.avi --mirror -nH -r 'ftp://$ftpuser:$ftppass\@$camip:50021/'\n";
     system("wget $quietflag -a Logfile -A schedule\\*.avi --mirror -nH -r 'ftp://$ftpuser:$ftppass\@$camip:50021/'");
@@ -301,7 +302,7 @@ sub copy_files_allcam {
 	    print "Started copy of camera $cam, now $children children\n";
 	} else {
 	    # Child
-	    copy_files($cam);
+	    copy_files($cam, $basedir);
 	    exit(0);
 	}
     }
