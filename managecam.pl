@@ -20,8 +20,10 @@ my $coldconf;
 #
 my $resetpw;
 my $ourpw = "wbf123";
+
 my $ftpuser = "ftpuser";
 my $ftppass = "ftp123";
+my $default_basedir = "/mnt/d";
 #
 # Network stuff
 #
@@ -247,9 +249,9 @@ sub start_ftp {
 }
 
 sub copy_files {
-    my ($cam) = @_;
-    my $name = devname($cam);
+    my ($cam, $basedir) = @_;
 
+    my $name = devname($cam);
     my $camip = $camnet . ($cam+$cambase);
     my $pw = $ourpw;
     -d $name || mkdir $name;
@@ -261,14 +263,15 @@ sub copy_files {
 }
 
 sub copy_files_allcam {
-    my ($low, $high) = @_;
+    my ($low, $high, $basedir) = @_;
     my $cam;
     my @camtocopy;
     my @camdown;
     my $children = 0;
 
+    print "Backup cameras $low to $high in directory $basedir\n";
     for $cam ($low..$high) {
-	if (start_ftp($cam)) {
+	if (start_ftp($cam, $basedir)) {
 	    # Camera is on, ftp started
 	    push @camtocopy, $cam;
 	} else {
@@ -363,7 +366,12 @@ while(1) {
 	$range =~ /^([0-9]*)(-([0-9]*))?$/;
 	my $low = $1;
 	my $high = defined($3) ? $3 : $1;
-	copy_files_allcam($low, $high);
+	my $basedir = prompt("Directory for storage [$default_basedir]");
+	if ($basedir eq "") {
+	    $basedir = $default_basedir;
+	}
+	$basedir .= "/";
+	copy_files_allcam($low, $high, $basedir);
     } else {
 	print "Goodbye!\n";
 	last;
