@@ -81,9 +81,9 @@ sub curl {
     my $auth = "usr=admin&pwd=$pw";
 
     my $curlcmd = "curl -s --connect-timeout 5 '$prefix$auth&$str'";
-    print "curlcmd = $curlcmd\n";
+    # print "curlcmd = $curlcmd\n";
     my $res = `$curlcmd`;
-    print "res = $res\n";
+    # print "res = $res\n";
     if ($res !~ /</) {
 	return 0;
     }
@@ -396,6 +396,11 @@ while(1) {
     } elsif ($command =~ /^[Gg].*/) {
 	# Group backup
 	my $children=0;
+	my $basedir = prompt("Directory for storage [$default_basedir]");
+	if ($basedir eq "") {
+	    $basedir = $default_basedir;
+	}
+	$basedir .= "/";
 
 	open (GROUP, '<', "groupinfo") || die "Group info missing";
 	while (<GROUP>) {
@@ -411,7 +416,7 @@ while(1) {
 		print "Backup in child $grprest\n";
 		my @camnumbers = split(" ", $grprest);
 		print "As array: @camnumbers\n";
-		copy_files_allcam($simul, $default_basedir, @camnumbers);
+		copy_files_allcam($simul, $basedir, @camnumbers);
 		exit();
 	    } else {
 		$children++;
