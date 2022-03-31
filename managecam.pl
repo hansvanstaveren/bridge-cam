@@ -54,6 +54,7 @@ my $lowhalf = 20;	# 10h00
 my $highhalf = 40;	# 20h00
 
 my $quietflag = "-nv";
+my $timeoutflag = "--tries=5 --timeout=10";
 
 sub prompt {
     my ($pr) = @_;
@@ -257,62 +258,66 @@ sub copy_files {
     unless (-d $dirname) { print "Creating directory $dirname\n"; mkdir $dirname }
     chdir $dirname;
     system("(date;echo starting copy)>>Copytimes");
-    print "wget $quietflag -a Logfile -A schedule\\*.avi --mirror -nH -r 'ftp://$ftpuser:$ftppass\@$camip:50021/'\n";
-    system("wget $quietflag -a Logfile -A schedule\\*.avi --mirror -nH -r 'ftp://$ftpuser:$ftppass\@$camip:50021/'");
-    system("(date;echo ending copy)>>Copytimes");
+    my $wgetcmd = "wget $quietflag $timeoutflag -a Logfile -A schedule\\*.avi --mirror -nH -r 'ftp://$ftpuser:$ftppass\@$camip:50021/'";
+    print "$wgetcmd\n";
+    my $retval = system($wgetcmd);
+    system("(date;echo ending copy with return $retval)>>Copytimes");
 }
 
 sub copy_files_allcam {
-    my ($simul, $basedir, @camnumbers) = @_;
-    my $cam;
-    my @camtocopy;
-    my @camdown;
-    my $children = 0;
+    my ($simul, $continuous, $basedir, @camnumbers) = @_;	## camnumbers array, must be last arg
 
-    print "Backup cameras @camnumbers in directory $basedir\n";
-    for $cam (@camnumbers) {
-	if (start_ftp($cam)) {
-	    # Camera is on, ftp started
-	    push @camtocopy, $cam;
-	} else {
-	    # Camera seems off
-	    push @camdown, $cam;
-	}
-    }
-    print "Cameras down: @camdown\n";
-
-    # @camtocopy = shuffle(@camtocopy);
-    print "Will copy cameras in order: @camtocopy\n";
-
-    while ($cam = shift @camtocopy) {
-	if ($children == $simul) {
-	    # Enough running in background
-	    # Wait for one to finish
-	    print "Wanting to copy $cam, but must wait\n";
-	    my $pid = wait();
-	    die "Wait failed" if ($pid < 0);
-	    $children--;
-	}
-	my $pid = fork();
-	die "Fork failed" unless(defined($pid));
-	if ($pid != 0) {
-	    # Parent
-	    $children++;
-	    print "Started copy of camera $cam, now $children children\n";
-	} else {
-	    # Child
-	    copy_files($cam, $basedir);
-	    exit(0);
-	}
-    }
-
-    #
-    # Wait for rest of children
-    #
+    # print "Backup cameras @camnumbers in directory $basedir, $simul simultaneous, continuous=$continuous\n";
     do {
-	print "Waiting for $children children\n";
-	# Nothing
-    } while (wait() > 0);
+	my $cam;
+	my @camtocopy;
+	my @camdown;
+	my $children = 0;
+
+	for $cam (@camnumbers) {
+	    if (start_ftp($cam)) {
+		# Camera is on, ftp started
+		push @camtocopy, $cam;
+	    } else {
+		# Camera seems off
+		push @camdown, $cam;
+	    }
+	}
+	print "Cameras down: @camdown\n";
+
+	# @camtocopy = shuffle(@camtocopy);
+	print "Will copy cameras in order: @camtocopy\n";
+
+	while ($cam = shift @camtocopy) {
+	    if ($children == $simul) {
+		# Enough running in background
+		# Wait for one to finish
+		# print "Wanting to copy $cam, but must wait\n";
+		my $pid = wait();
+		die "Wait failed" if ($pid < 0);
+		$children--;
+	    }
+	    my $pid = fork();
+	    die "Fork failed" unless(defined($pid));
+	    if ($pid != 0) {
+		# Parent
+		$children++;
+		print "Started copy of camera $cam, now $children children\n";
+	    } else {
+		# Child
+		copy_files($cam, $basedir);
+		exit(0);
+	    }
+	}
+
+	#
+	# Wait for rest of children
+	#
+	do {
+	    print "Waiting for $children children\n";
+	    # Nothing
+	} while (wait() > 0);
+    } while ($continuous);
 }
 
 sub splitgrp {
@@ -392,7 +397,7 @@ while(1) {
 	    $basedir = $default_basedir;
 	}
 	$basedir .= "/";
-	copy_files_allcam($simul, $basedir, $low..$high);
+	copy_files_allcam($simul, 0, $basedir, $low..$high);
     } elsif ($command =~ /^[Gg].*/) {
 	# Group backup
 	my $children=0;
@@ -401,6 +406,15 @@ while(1) {
 	    $basedir = $default_basedir;
 	}
 	$basedir .= "/";
+
+	my $continuousstr = prompt("Continuous or One-time[Continuous]");
+	my $continuous;
+	if ($continuousstr =~ /^[Oo]/) {
+	    $continuous = 0;
+	} else {
+	    $continuous = 1;
+	}
+	# print "continuous = $continuous\n";
 
 	open (GROUP, '<', "groupinfo") || die "Group info missing";
 	while (<GROUP>) {
@@ -416,7 +430,8 @@ while(1) {
 		# print "Backup in child $grprest\n";
 		my @camnumbers = split(" ", $grprest);
 		# print "As array: @camnumbers\n";
-		copy_files_allcam($simul, $basedir, @camnumbers);
+		# print "Before copy continuous=$continuous\n";
+		copy_files_allcam($simul, $continuous, $basedir, @camnumbers);
 		exit(0);
 	    } else {
 		$children++;
