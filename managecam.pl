@@ -23,7 +23,7 @@ my $ourpw = "wbf123";
 
 my $ftpuser = "ftpuser";
 my $ftppass = "ftp123";
-my $default_basedir = "/mnt/d";
+my $default_basedir = "/usbdisk/wtc2021";
 #
 # Network stuff
 #
