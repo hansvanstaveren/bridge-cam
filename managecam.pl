@@ -18,7 +18,7 @@ my $coldconf;
 #
 # user/password stuff
 #
-my $resetpw;
+my $resetpw = "wbf123";;
 my $ourpw = "wbf123";
 
 my $ftpuser = "ftpuser";
@@ -32,34 +32,27 @@ my $cambase = 0;	# Number to add to camera to get 4th octet IP address
 my $cammin = 1;
 my $cammax = 150;
 
-my $camnet = "172.16.12.";
+my $camnet = "192.168.11.";
 my $camnetmask = "255.255.255.0";
 my $gateway = "254";		# 254 and not 1, to be able to use camera #1
 
 my $ip_gateway = $camnet . $gateway;
-<<<<<<< HEAD
-=======
 
 my $hours_after_gmt = 1;
 my $hours_dst = 1;
->>>>>>> 227a77cd0579164d90084b400ee14f621415f335
 
 my $camport = 88;
 
 my $wifinet = "bridge-care";
 my $wifipw = "brc-0000";
 
-<<<<<<< HEAD
-=======
 #
 # Recording times
 #
 
->>>>>>> 227a77cd0579164d90084b400ee14f621415f335
 my $lowhalf = 20;	# 10h00
 my $highhalf = 40;	# 20h00
 
-my $maxchildren = 10;
 my $quietflag = "-nv";
 
 sub prompt {
@@ -264,13 +257,13 @@ sub copy_files {
     unless (-d $dirname) { print "Creating directory $dirname\n"; mkdir $dirname }
     chdir $dirname;
     system("(date;echo starting copy)>>Copytimes");
-    print "wget $quietflag -a Logfile -A schedule\\*.avi --mirror -nH -r 'ftp://$ftpuser:$ftppass\@$camip:50021/'\n";
-    system("wget $quietflag -a Logfile -A schedule\\*.avi --mirror -nH -r 'ftp://$ftpuser:$ftppass\@$camip:50021/'");
+    print "wget $quietflag -a Logfile -A schedule\\*.avi,schedule\\*.mp4 --mirror -nH -r 'ftp://$ftpuser:$ftppass\@$camip:50021/'\n";
+    system("wget $quietflag -a Logfile -A schedule\\*.avi,schedule\\*.mp4 --mirror -nH -r 'ftp://$ftpuser:$ftppass\@$camip:50021/'");
     system("(date;echo ending copy)>>Copytimes");
 }
 
 sub copy_files_allcam {
-    my ($low, $high, $basedir) = @_;
+    my ($low, $high, $simul, $basedir) = @_;
     my $cam;
     my @camtocopy;
     my @camdown;
@@ -292,7 +285,7 @@ sub copy_files_allcam {
     print "Will copy cameras in order: @camtocopy\n";
 
     while ($cam = shift @camtocopy) {
-	if ($children == $maxchildren) {
+	if ($children == $simul) {
 	    # Enough running in background
 	    # Wait for one to finish
 	    print "Wanting to copy $cam, but must wait\n";
@@ -345,7 +338,7 @@ while(1) {
 	    }
 
 	    $resetpw = "";
-	    change_passwd($cam, $resetpw, $ourpw);
+	    # change_passwd($cam, $resetpw, $ourpw);
 	}
 	$resetpw = $ourpw;
 
@@ -373,12 +366,13 @@ while(1) {
 	$range =~ /^([0-9]*)(-([0-9]*))?$/;
 	my $low = $1;
 	my $high = defined($3) ? $3 : $1;
+	my $simul = prompt("How many simultaneous?");
 	my $basedir = prompt("Directory for storage [$default_basedir]");
 	if ($basedir eq "") {
 	    $basedir = $default_basedir;
 	}
 	$basedir .= "/";
-	copy_files_allcam($low, $high, $basedir);
+	copy_files_allcam($low, $high, $simul, $basedir);
     } else {
 	print "Goodbye!\n";
 	last;
