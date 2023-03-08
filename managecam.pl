@@ -55,6 +55,13 @@ my $wifipw = "brc-0000";
 my $lowhalf = 20;	# 10h00
 my $highhalf = 40;	# 20h00
 
+#
+# Backup pre- and suffixes
+#
+
+my @backup_pre = ( "schedule" );
+my @backup_suf = ( "avi", "mp4" );
+
 my $quietflag = "-nv";
 my $timeoutflag = "--tries=5 --timeout=10";
 
@@ -257,12 +264,25 @@ sub copy_files {
     my $dirname = "$basedir$name";
     my $camip = $camnet . ($cam+$cambase);
     my $pw = $ourpw;
+    my (@copyar, $copystr);
+
     unless (-d $dirname) { print "Creating directory $dirname\n"; mkdir $dirname }
     chdir $dirname;
+
+    foreach my $pre (@backup_pre) {
+	foreach my $suf (@backup_suf) {
+	    print "pre=$pre, suf=$suf\n";
+	    push (@copyar, "$pre\\*.$suf");
+	}
+    }
+    $copystr = join ",", @copyar;
+
     system("(date;echo starting copy)>>Copytimes");
-    my $wgetcmd = "wget $quietflag $timeoutflag -a Logfile -A schedule\\*.avi,schedule\\*.mp4 --mirror -nH -r 'ftp://$ftpuser:$ftppass\@$camip:50021/'";
+
+    my $wgetcmd = "wget $quietflag $timeoutflag -a Logfile -A $copystr --mirror -nH -r 'ftp://$ftpuser:$ftppass\@$camip:50021/'";
     print "$wgetcmd\n";
     my $retval = system($wgetcmd);
+
     system("(date;echo ending copy with return $retval)>>Copytimes");
 }
 
