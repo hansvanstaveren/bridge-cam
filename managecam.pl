@@ -18,7 +18,8 @@ my $coldconf;
 #
 # user/password stuff
 #
-my $resetpw = "wbf123";;
+my $camuser="brcadmin";
+my $resetpw = "wbf123";
 my $ourpw = "wbf123";
 
 my $ftpuser = "ftpuser";
@@ -30,15 +31,16 @@ my $default_basedir = "/usbdisk/wtc2021";
 my $dhcpcamip="";
 my $cambase = 0;	# Number to add to camera to get 4th octet IP address
 my $cammin = 1;
-my $cammax = 150;
+my $cammax = 800;
 
-# Camnet should be 172.16.12.
-# debugging value now
-my $camnet = "192.168.11.";
-my $camnetmask = "255.255.255.0";
-my $gateway = "254";		# 254 and not 1, to be able to use camera #1
-
-my $ip_gateway = $camnet . $gateway;
+# Better IP address management
+# Gateway will be last usable address
+# my $network_cidr = "192.168.11.0/24";
+my $network_cidr = "172.16.12.0/22";
+my $network_ipv4;
+my $network_size;
+my $network_mask;
+my $network_gateway;
 
 my $hours_after_gmt = 1;
 my $hours_dst = 1;
@@ -65,6 +67,69 @@ my @backup_suf = ( "avi", "mp4" );
 my $quietflag = "-nv";
 my $timeoutflag = "--tries=5 --timeout=10";
 
+#
+# Network stuff
+#
+
+sub network_addr_string {
+    my ($ipv4) = @_;
+
+    # print "ipv4=$ipv4, ";
+    my $oct4 = $ipv4 & 255;
+    $ipv4 >>= 8;
+    my $oct3 = $ipv4 & 255;
+    $ipv4 >>= 8;
+    my $oct2 = $ipv4 & 255;
+    $ipv4 >>= 8;
+    my $oct1 = $ipv4 & 255;
+
+    # print "oct1-4 are $oct1 $oct2 $oct3 $oct4\n";
+    my $addr = "$oct1.$oct2.$oct3.$oct4";
+    return $addr;
+}
+
+sub network_addr {
+    my ($hostnum) = @_;
+
+    my $ipv4 = $network_ipv4 + $hostnum;
+    return network_addr_string($ipv4);
+}
+
+sub cam_network_addr {
+    my ($camnum) = @_;
+
+    # 
+    # With more cameras perhaps the mapping cameranumber to IP address
+    # should be more flexible.
+    # Whatever is decided, this is the place to do it.
+    #
+    my $hostnum = $camnum;
+    if ($hostnum > 200) {
+	$hostnum += 56;	# Bump up third octet
+    }
+    return network_addr($hostnum);
+}
+
+sub network_init {
+
+    if ($network_cidr !~ /^([0-9]+)\.([0-9]+)\.([0-9]+)\.([0-9]+)\/([0-9]+)$/) {
+	die "network $network_cidr bad format";
+    }
+    # print "$1 $2 $3 $4 $5\n";
+    # print $1*2**24 ," ", $2*2**16 ," ", $3*2**8 ," ", $4 , "\n";
+    $network_ipv4 = $1*2**24 + $2*2**16 + $3*2**8 + $4;
+    $network_size = 2**(32-$5);
+    $network_gateway = $network_size - 2;
+    my $mask = 2**32-1;
+    $mask &= ~($network_size-1);
+    $network_mask = network_addr_string($mask);
+    # print "ipv4=$network_ipv4, size=$network_size, mask=$network_mask, gateway=$network_gateway\n";
+}
+
+#
+# End network stuff
+#
+
 sub prompt {
     my ($pr) = @_;
 
@@ -84,11 +149,12 @@ sub curl {
 	$camip = $dhcpcamip;
 	$pw = $resetpw;
     } else {
-	$camip = $camnet . ($cam+$cambase);
+	# $camip = $camnet . ($cam+$cambase);
+	$camip = cam_network_addr($cam+$cambase);
 	$pw = $ourpw;
     }
     my $prefix = "http://$camip:$camport/cgi-bin/CGIProxy.fcgi?";
-    my $auth = "usr=admin&pwd=$pw";
+    my $auth = "usr=$camuser&pwd=$pw";
 
     my $curlcmd = "curl -s --connect-timeout 5 '$prefix$auth&$str'";
     # print "curlcmd = $curlcmd\n";
@@ -101,11 +167,11 @@ sub curl {
 
     my $result = $parsed->{result};
     if ($result != 0) {
-	print "Error $result\n";
+	print "ERROR $result in command: $curlcmd\n";
     } else {
 	    # print Dumper($parsed), "\n";
     }
-    return $result == 0;
+    return $result == 0, $parsed;
 }
 
 sub sendcmd {
@@ -119,14 +185,15 @@ sub sendcmd {
     }
     $argstr .= "cmd=$cmd";
     # print "args = $argstr\n";
-    return curl($cam, $argstr);
+    my ($retval, $info) = curl($cam, $argstr);
+    return $retval;
 }
 
 sub change_passwd {
     my ($cam, $oldpw, $newpw) = @_;
     my %args;
 
-    $args{usrName} = "admin";
+    $args{usrName} = "$camuser";
     $args{oldPwd} = $oldpw;
     $args{newPwd} = $newpw;
     return sendcmd($cam, "changePassword", \%args);
@@ -136,12 +203,12 @@ sub set_ip {
     my ($cam) = @_;
     my %args;
 
-    $args{DHCP} = 0;
-    $args{ip} = $camnet . ( $cam+$cambase );
-    $args{mask} = $camnetmask;
-    $args{gate} = $ip_gateway;
-    $args{dns1} = $ip_gateway;
-    $args{dns2} = $ip_gateway;
+    $args{isDHCP} = 0;
+    $args{ip} = cam_network_addr($cam+$cambase);
+    $args{mask} = $network_mask;
+    $args{gate} = network_addr($network_gateway);
+    $args{dns1} = network_addr($network_gateway);
+    $args{dns2} = network_addr($network_gateway);
     return sendcmd($cam, "setIpInfo", \%args);
 }
 
@@ -164,7 +231,7 @@ sub set_system_time {
     my %args;
 
     $args{timeSource} = 0;
-    $args{ntpServer} = $ip_gateway;
+    $args{ntpServer} = network_addr($network_gateway);
     $args{dateFormat} = 0;
     $args{timeFormat} = 1;
     $args{timeZone} = -3600*$hours_after_gmt;
@@ -262,7 +329,7 @@ sub copy_files {
 
     my $name = devname($cam);
     my $dirname = "$basedir$name";
-    my $camip = $camnet . ($cam+$cambase);
+    my $camip = cam_network_addr($cam+$cambase);
     my $pw = $ourpw;
     my (@copyar, $copystr);
 
@@ -271,7 +338,7 @@ sub copy_files {
 
     foreach my $pre (@backup_pre) {
 	foreach my $suf (@backup_suf) {
-	    print "pre=$pre, suf=$suf\n";
+	    # print "pre=$pre, suf=$suf\n";
 	    push (@copyar, "$pre\\*.$suf");
 	}
     }
@@ -307,7 +374,7 @@ sub copy_files_allcam {
 	}
 	print "Cameras down: @camdown\n";
 
-	# @camtocopy = shuffle(@camtocopy);
+	@camtocopy = shuffle(@camtocopy);
 	print "Will copy cameras in order: @camtocopy\n";
 
 	while ($cam = shift @camtocopy) {
@@ -362,6 +429,12 @@ sub splitgrp {
     return $result;
 }
 
+#
+# Start of main program,
+#
+
+network_init();
+
 while(1) {
     my $command = prompt("Init or Backup or Groupbackup");
     if ($command =~ /^[Ii].*/) {
@@ -377,7 +450,7 @@ while(1) {
 	    if ($dhcpcamip =~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) {
 		print "Complete IP address $dhcpcamip\n";
 	    } elsif ($dhcpcamip =~ /^[0-9]+$/) {
-		$dhcpcamip = "$camnet$dhcpcamip";
+		$dhcpcamip = network_addr($dhcpcamip);
 		print "Completed IP address $dhcpcamip\n";
 	    } else {
 		print "Wrong IP address $dhcpcamip\n";
@@ -394,7 +467,7 @@ while(1) {
 	set_wifi($cam);
 
 	set_motion_detect($cam, 0);
-	set_alarm_record($cam, 0);
+	# set_alarm_record($cam, 0);
 	set_schedule_record($cam, 1, 1, 1);
 	set_infrared_manual($cam);
 	set_infrared_off($cam);
