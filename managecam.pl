@@ -14,17 +14,32 @@ use Data::Dumper;
 use LWP::Simple;
 use List::Util qw(shuffle);
 
+#
+# coldconf is when configuring camera first time
+# includes setting IP address
+#
 my $coldconf;
+
 #
 # user/password stuff
+# used to have a factory password and default user "admin"
+# Since last batch that stuff disappeared
 #
 my $camuser="brcadmin";
 my $resetpw = "wbf123";
 my $ourpw = "wbf123";
+my $defaultpassword = "wbf123";
 
+my %account_pwd;
+my %account_priv;
+
+#
+# Ftp stuff for copying video
+#
 my $ftpuser = "ftpuser";
 my $ftppass = "ftp123";
 my $default_basedir = "/usbdisk/wtc2021";
+
 #
 # Network stuff
 #
@@ -33,17 +48,18 @@ my $cambase = 0;	# Number to add to camera to get 4th octet IP address
 my $cammin = 1;
 my $cammax = 800;
 
+#
 # Better IP address management
 # Gateway will be last usable address
-# my $network_cidr = "192.168.11.0/24";
+#
 my $network_cidr = "172.16.12.0/22";
 my $network_ipv4;
 my $network_size;
 my $network_mask;
 my $network_gateway;
 
-my $hours_after_gmt = 1;
-my $hours_dst = 1;
+# my $hours_after_gmt = 1;
+# my $hours_dst = 1;
 
 my $camport = 88;
 
@@ -59,16 +75,16 @@ my $highhalf = 40;	# 20h00
 
 #
 # Backup pre- and suffixes
+# and varous flags for wget
 #
 
 my @backup_pre = ( "schedule" );
 my @backup_suf = ( "avi", "mp4" );
-
 my $quietflag = "-nv";
 my $timeoutflag = "--tries=5 --timeout=10";
 
 #
-# Network stuff
+# Network address routines
 #
 
 sub network_addr_string {
@@ -115,8 +131,6 @@ sub network_init {
     if ($network_cidr !~ /^([0-9]+)\.([0-9]+)\.([0-9]+)\.([0-9]+)\/([0-9]+)$/) {
 	die "network $network_cidr bad format";
     }
-    # print "$1 $2 $3 $4 $5\n";
-    # print $1*2**24 ," ", $2*2**16 ," ", $3*2**8 ," ", $4 , "\n";
     $network_ipv4 = $1*2**24 + $2*2**16 + $3*2**8 + $4;
     $network_size = 2**(32-$5);
     $network_gateway = $network_size - 2;
@@ -149,7 +163,6 @@ sub curl {
 	$camip = $dhcpcamip;
 	$pw = $resetpw;
     } else {
-	# $camip = $camnet . ($cam+$cambase);
 	$camip = cam_network_addr($cam+$cambase);
 	$pw = $ourpw;
     }
@@ -157,7 +170,7 @@ sub curl {
     my $auth = "usr=$camuser&pwd=$pw";
 
     my $curlcmd = "curl -s --connect-timeout 5 '$prefix$auth&$str'";
-    # print "curlcmd = $curlcmd\n";
+    print "curlcmd = $curlcmd\n";
     my $res = `$curlcmd`;
     # print "res = $res\n";
     if ($res !~ /</) {
@@ -169,8 +182,10 @@ sub curl {
     if ($result != 0) {
 	print "ERROR $result in command: $curlcmd\n";
     } else {
-	    # print Dumper($parsed), "\n";
+	# print Dumper($parsed), "\n";
     }
+    #
+    # Return succes and other stuff. To be used later
     return $result == 0, $parsed;
 }
 
@@ -186,7 +201,30 @@ sub sendcmd {
     $argstr .= "cmd=$cmd";
     # print "args = $argstr\n";
     my ($retval, $info) = curl($cam, $argstr);
+    #
+    # Info is whole result, maybe later
+    #
     return $retval;
+}
+
+sub sendgetcmd {
+    my ($cam, $cmd) = @_;
+
+    my $argstr = "cmd=$cmd";
+    # print "args = $argstr\n";
+    my ($retval, $info) = curl($cam, $argstr);
+    #
+    # Info is whole result, maybe later
+    #
+    return $info;
+}
+
+sub get_dev_info {
+    my ($cam) = @_;
+
+    my $retval = sendgetcmd($cam, "getDevInfo");
+    print "Model: ", $retval->{"productName"}, "\n";
+    print "Firmware: ", $retval->{"firmwareVer"}, "\n";
 }
 
 sub change_passwd {
@@ -226,6 +264,16 @@ sub set_devname {
     return sendcmd($cam, "setDevName", \%args);
 }
 
+sub tz_offset
+{
+    my $t = time;
+    my @l = localtime($t);
+    my @g = gmtime($t);
+
+    my $minutes = ($l[2] - $g[2] + ((($l[5]<<9)|$l[7]) <=> (($g[5]<<9)|$g[7])) * 24) * 60 + $l[1] - $g[1];
+    return 60*$minutes;
+}
+
 sub set_system_time {
     my ($cam) = @_;
     my %args;
@@ -234,8 +282,10 @@ sub set_system_time {
     $args{ntpServer} = network_addr($network_gateway);
     $args{dateFormat} = 0;
     $args{timeFormat} = 1;
-    $args{timeZone} = -3600*$hours_after_gmt;
-    $args{isDst} = $hours_dst;
+    # $args{timeZone} = -3600*$hours_after_gmt;
+    $args{timeZone} = -tz_offset();
+    # $args{isDst} = $hours_dst;
+    $args{isDst} = 0;
     return sendcmd($cam, "setSystemTime", \%args);
 }
 
@@ -267,6 +317,8 @@ sub set_alarm_record {
     my %args;
 
     $args{isEnablePreRecord} = $onoff;
+    $args{preRecordSecs} = 5;
+    $args{alarmRecordSecs} = 30;
     return sendcmd($cam, "setAlarmRecordConfig", \%args);
 }
 
@@ -315,6 +367,38 @@ sub set_ftp_account {
     $args{usrPwd} = $pass;
     $args{privilege} = $privilege;
     return sendcmd($cam, "addAccount", \%args);
+}
+
+sub set_account {
+    my ($cam, $userid, $pass, $privilege) = @_;
+    my %args;
+
+    $args{usrName} = $userid;
+    $args{usrPwd} = $pass;
+    $args{privilege} = $privilege;
+    return sendcmd($cam, "addAccount", \%args);
+}
+
+sub add_accounts {
+    my ($cam) = @_;
+
+    foreach my $user (keys %account_pwd) {
+	set_account($cam, $user, $account_pwd{$user}, $account_priv{$user});
+    }
+}
+
+sub account_init {
+
+    open (ACCOUNTS, '<', "accounts") || die "Account info missing";
+    while (<ACCOUNTS>) {
+	chomp;
+	my ($user, $pwd, $priv) = split;
+	$pwd = $defaultpassword unless $pwd;
+	$priv = 2 unless $priv;
+	$account_pwd{$user} = $pwd;
+	$account_priv{$user} = $priv;
+    }
+    close ACCOUNTS;
 }
 
 sub start_ftp {
@@ -434,6 +518,7 @@ sub splitgrp {
 #
 
 network_init();
+account_init();
 
 while(1) {
     my $command = prompt("Init or Backup or Groupbackup");
@@ -462,17 +547,18 @@ while(1) {
 	}
 	$resetpw = $ourpw;
 
+	get_dev_info($cam);
 	set_devname($cam);
 	set_system_time($cam);
 	set_wifi($cam);
 
 	set_motion_detect($cam, 0);
-	# set_alarm_record($cam, 0);
+	set_alarm_record($cam, 0);
 	set_schedule_record($cam, 1, 1, 1);
 	set_infrared_manual($cam);
 	set_infrared_off($cam);
 
-	set_ftp_account($cam, $ftpuser, $ftppass, 2);
+	add_accounts($cam);
 
 	if ($coldconf) {
 	    # And finally (reboot will occur)
