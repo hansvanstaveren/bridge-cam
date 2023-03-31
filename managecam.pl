@@ -1,6 +1,5 @@
 #!/usr/bin/perl
 
-@
 #
 # Software for Bridge_CARE camera setup and backup
 #
@@ -61,9 +60,9 @@ my $default_basedir = "/usbdisk/wtc2021";
 # Network stuff
 #
 my $dhcpcamip="";
-my $cambase = 0;	# Number to add to camera to get 4th octet IP address
+my $cambase = 0;	# Number to add to camera to get host IP address
 my $cammin = 1;
-my $cammax = 800;
+my $cammax = 400;
 
 #
 # Better IP address management
@@ -104,7 +103,6 @@ my $timeoutflag = "--tries=5 --timeout=10";
 sub network_addr_string {
     my ($ipv4) = @_;
 
-    # print "ipv4=$ipv4, ";
     my $oct4 = $ipv4 & 255;
     $ipv4 >>= 8;
     my $oct3 = $ipv4 & 255;
@@ -113,7 +111,6 @@ sub network_addr_string {
     $ipv4 >>= 8;
     my $oct1 = $ipv4 & 255;
 
-    # print "oct1-4 are $oct1 $oct2 $oct3 $oct4\n";
     my $addr = "$oct1.$oct2.$oct3.$oct4";
     return $addr;
 }
@@ -121,8 +118,8 @@ sub network_addr_string {
 sub network_addr {
     my ($hostnum) = @_;
 
-    my $ipv4 = $network_ipv4 + $hostnum;
-    return network_addr_string($ipv4);
+    # my $ipv4 = $network_ipv4 + $hostnum;
+    return network_addr_string($network_ipv4 + $hostnum);
 }
 
 sub cam_network_addr {
@@ -164,7 +161,6 @@ sub prompt {
     print ("$pr: ");
     my $ans = <>;
     chomp $ans;
-    # print "Prompt $pr returning $ans\n";
     return $ans;
 }
 
@@ -196,6 +192,7 @@ sub curl {
     if ($result != 0) {
 	print "ERROR $result in command: $curlcmd\n";
     } else {
+	# For debugging dump whole result
 	# print Dumper($parsed), "\n";
     }
     #
@@ -213,7 +210,6 @@ sub sendcmd {
 	$argstr .= "$key=$args{$key}&";
     }
     $argstr .= "cmd=$cmd";
-    # print "args = $argstr\n";
     my ($retval, $info) = curl($cam, $argstr);
     #
     # Info is whole result, maybe later
@@ -225,7 +221,6 @@ sub sendgetcmd {
     my ($cam, $cmd) = @_;
 
     my $argstr = "cmd=$cmd";
-    # print "args = $argstr\n";
     my ($retval, $info) = curl($cam, $argstr);
 
     return $retval ? $info : "";
@@ -288,6 +283,10 @@ sub set_devname {
     return sendcmd($cam, "setDevName", \%args);
 }
 
+#
+# Code stolen from Internet
+# computes difference between local and UTC time
+#
 sub tz_offset
 {
     my $t = time;
@@ -379,16 +378,6 @@ sub set_schedule_record {
     $args{schedule5} = $sum;
     $args{schedule6} = $sum;
     return sendcmd($cam, "setScheduleRecordConfig", \%args);
-}
-
-sub set_ftp_account {
-    my ($cam, $userid, $pass, $privilege) = @_;
-    my %args;
-
-    $args{usrName} = $userid;
-    $args{usrPwd} = $pass;
-    $args{privilege} = $privilege;
-    return sendcmd($cam, "addAccount", \%args);
 }
 
 sub set_account {
