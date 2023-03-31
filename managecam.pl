@@ -21,11 +21,27 @@ use List::Util qw(shuffle);
 my $coldconf;
 
 #
+# Desired firmware versions
+# Value in array can be used for choices in the rest of program
+# put in variable $hw_type;
+#
+# We have three generations opf cameras,
+# let's number 1,2 and 3, just in case difference is needed
+#
+
+my %hw_fw_allowed;
+$hw_fw_allowed{"ICS2010:2.142.2.101"} = 1;
+$hw_fw_allowed{"MCS2020:2.142.2.101"} = 2;
+$hw_fw_allowed{"MCS2021:2.142.2.101"} = 3;
+
+my $hw_type;
+
+#
 # user/password stuff
 # used to have a factory password and default user "admin"
 # Since last batch that stuff disappeared
 #
-my $camuser="brcadmin";
+my $camuser="admin";
 my $resetpw = "wbf123";
 my $ourpw = "wbf123";
 my $defaultpassword = "wbf123";
@@ -37,7 +53,7 @@ my %account_priv;
 # Ftp stuff for copying video
 #
 my $ftpuser = "ftpuser";
-my $ftppass = "ftp123";
+my $ftppass;
 my $default_basedir = "/usbdisk/wtc2021";
 
 #
@@ -57,9 +73,6 @@ my $network_ipv4;
 my $network_size;
 my $network_mask;
 my $network_gateway;
-
-# my $hours_after_gmt = 1;
-# my $hours_dst = 1;
 
 my $camport = 88;
 
@@ -170,10 +183,10 @@ sub curl {
     my $auth = "usr=$camuser&pwd=$pw";
 
     my $curlcmd = "curl -s --connect-timeout 5 '$prefix$auth&$str'";
-    print "curlcmd = $curlcmd\n";
+    # print "curlcmd = $curlcmd\n";
     my $res = `$curlcmd`;
-    # print "res = $res\n";
     if ($res !~ /</) {
+	print "curlcmd = $curlcmd -> res = $res\n";
 	return 0;
     }
     my $parsed = XMLin($res);
@@ -213,18 +226,28 @@ sub sendgetcmd {
     my $argstr = "cmd=$cmd";
     # print "args = $argstr\n";
     my ($retval, $info) = curl($cam, $argstr);
-    #
-    # Info is whole result, maybe later
-    #
-    return $info;
+
+    return $retval ? $info : "";
 }
 
 sub get_dev_info {
     my ($cam) = @_;
 
     my $retval = sendgetcmd($cam, "getDevInfo");
-    print "Model: ", $retval->{"productName"}, "\n";
-    print "Firmware: ", $retval->{"firmwareVer"}, "\n";
+    if ($retval) {
+	my $model = $retval->{"productName"};
+	my $fw = $retval->{"firmwareVer"};
+
+	$hw_type = $hw_fw_allowed{"$model:$fw"};
+	if (!$hw_type) {
+	    prompt("Camera $cam, model $model running firmware $fw!!\n");
+	}
+	#
+	# Perhaps store some info if needed later
+	#
+    } else {
+	print "getDevInfo failed\n";
+    }
 }
 
 sub change_passwd {
@@ -282,9 +305,7 @@ sub set_system_time {
     $args{ntpServer} = network_addr($network_gateway);
     $args{dateFormat} = 0;
     $args{timeFormat} = 1;
-    # $args{timeZone} = -3600*$hours_after_gmt;
     $args{timeZone} = -tz_offset();
-    # $args{isDst} = $hours_dst;
     $args{isDst} = 0;
     return sendcmd($cam, "setSystemTime", \%args);
 }
@@ -405,6 +426,8 @@ sub start_ftp {
     my ($cam) = @_;
     my %args;
 
+    $ftppass = $account_pwd{$ftpuser};
+    die "FTP password unknown" unless $ftppass;
     return sendcmd($cam, "startFtpServer", \%args);
 }
 
