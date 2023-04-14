@@ -180,7 +180,7 @@ sub curl {
     my $auth = "usr=$camuser&pwd=$pw";
 
     my $curlcmd = "curl -s --connect-timeout 5 '$prefix$auth&$str'";
-    # print "curlcmd = $curlcmd\n";
+    print "curlcmd = $curlcmd\n";
     my $res = `$curlcmd`;
     if ($res !~ /</) {
 	print "curlcmd = $curlcmd -> res = $res\n";
@@ -236,7 +236,7 @@ sub get_dev_info {
 
 	$hw_type = $hw_fw_allowed{"$model:$fw"};
 	if (!$hw_type) {
-	    prompt("Camera $cam, model $model running firmware $fw!!\n");
+	    # prompt("Camera $cam, model $model running firmware $fw!!");
 	}
 	#
 	# Perhaps store some info if needed later
@@ -534,8 +534,12 @@ network_init();
 account_init();
 
 while(1) {
-    my $command = prompt("Init or Backup or Groupbackup");
-    if ($command =~ /^[Ii].*/) {
+    my $command = prompt("Init or Reinit or Backup or Groupbackup");
+    if ($command =~ /^[IiRr].*/) {
+	my $reinit = 0;
+	if ($command =~ /^[Rr].*/) {
+	    $reinit = 1;
+	}
 	# Init
 	my $cam = prompt("Camera number");
 	if ($cam < $cammin || $cam > $cammax) {
@@ -560,20 +564,24 @@ while(1) {
 	}
 	$resetpw = $ourpw;
 
-	get_dev_info($cam);
-	set_devname($cam);
+	if ($reinit == 0) {
+	    get_dev_info($cam);
+	    set_devname($cam);
+	}
 	set_system_time($cam);
-	set_wifi($cam);
+	if ($reinit == 0) {
+	    set_wifi($cam);
 
-	set_motion_detect($cam, 0);
-	set_alarm_record($cam, 0);
-	set_schedule_record($cam, 1, 1, 1);
-	set_infrared_manual($cam);
-	set_infrared_off($cam);
+	    set_motion_detect($cam, 0);
+	    # set_alarm_record($cam, 0);
+	    set_schedule_record($cam, 1, 1, 1);
+	    set_infrared_manual($cam);
+	    set_infrared_off($cam);
 
-	add_accounts($cam);
+	    add_accounts($cam);
+	}
 
-	if ($coldconf) {
+	if ($coldconf || $reinit) {
 	    # And finally (reboot will occur)
 	    set_ip($cam);
 	}
