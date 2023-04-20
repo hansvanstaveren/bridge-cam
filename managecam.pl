@@ -25,7 +25,7 @@ my $coldconf;
 # Value in array can be used for choices in the rest of program
 # put in variable $hw_type;
 #
-# We have three generations opf cameras,
+# We have three generations of cameras,
 # let's number 1,2 and 3, just in case difference is needed
 #
 
