@@ -54,7 +54,7 @@ my %account_priv;
 #
 my $ftpuser = "ftpuser";
 my $ftppass;
-my $default_basedir = "/usbdisk/wtc2021";
+my $default_basedir = "/mnt/brcsrv2/2024ENTC/";
 
 #
 # Network stuff
@@ -94,7 +94,7 @@ my $highhalf = 40;	# 20h00
 my @backup_pre = ( "schedule" );
 my @backup_suf = ( "avi", "mp4" );
 my $quietflag = "-nv";
-my $timeoutflag = "--tries=5 --timeout=10";
+my $timeoutflag = "--tries=2 --timeout=5";
 
 #
 # Network address routines
@@ -620,6 +620,7 @@ while(1) {
 
 	open (GROUP, '<', "groupinfo") || die "Group info missing";
 	while (<GROUP>) {
+	    next if /^#/;
 	    chomp;
 	    my @flds = split;
 	    my $simul = shift @flds;
