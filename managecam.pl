@@ -52,7 +52,7 @@ my %account_priv;
 #
 # Ftp stuff for copying video
 #
-my $ftpuser = "ftpuser";
+my $ftpuser = "admin";
 my $ftppass;
 my $default_basedir = "/mnt/brcsrv2/2024ENTC/";
 
